@@ -428,4 +428,4 @@ If a mid-level engineer picked this up tomorrow, these are the three things I'd 
 
 ### AI assistance
 
-I built this with Claude Code as a pair. The prompts I used are in the separate prompt log (screenshots) submitted with this repo. All design decisions, trade-offs and numbers above were reviewed and verified by running the code and the test suite.
+I built this with Claude Code as a pair. All design decisions, trade-offs and numbers above were reviewed and verified by running the code and the test suite.
