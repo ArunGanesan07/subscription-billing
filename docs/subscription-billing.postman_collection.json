@@ -1,0 +1,1496 @@
+{
+  "info": {
+    "name": "Subscription Billing API (demo)",
+    "description": "Zero-edit walkthrough of the subscription billing API. Every request works as-is: just click Send (or run the whole collection with Runner).\n\nBefore you start:\n1. `php artisan migrate:fresh --seed`\n2. `php artisan serve` (http://localhost:8000)\n\nHow it works:\n- The collection pre-request script looks up seeded IDs (plans by code, the Beta Retail customer, a Globex customer, an invoice) the first time and caches them in collection variables.\n- Idempotency keys, plan codes and external IDs are generated on each send, so requests never collide on a re-run.\n- Subscription requests create a fresh customer + subscription in their pre-request script, so they can be sent repeatedly in any order.\n- Each request has tests that check the expected status code.\n\nRate limit: the API allows 60 requests per minute per key. A full Runner pass uses about 45, so wait one minute between full runs (single Send clicks are fine).\n\nAmounts are in paise (INR). Dates are computed in UTC, matching the app timezone.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{acme_key}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const iso = (offset) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + offset); return d.toISOString().slice(0, 10); };",
+          "pm.collectionVariables.set('today', iso(0));",
+          "pm.collectionVariables.set('yesterday', iso(-1));",
+          "pm.collectionVariables.set('tomorrow', iso(1));",
+          "pm.collectionVariables.set('too_old', iso(-10));",
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "",
+          "if (pm.collectionVariables.get('lookups_ready') !== 'yes') {",
+          "",
+          "const base = pm.collectionVariables.get('base_url');",
+          "const get = (path, key, cb) => pm.sendRequest({",
+          "  url: base + path,",
+          "  method: 'GET',",
+          "  header: [{ key: 'Accept', value: 'application/json' }, { key: 'Authorization', value: 'Bearer ' + pm.collectionVariables.get(key) }],",
+          "}, (err, res) => {",
+          "  if (err || res.code !== 200) {",
+          "    throw new Error('Setup failed for ' + path + ' — is `php artisan serve` running and the DB seeded? ' + (err || res.code));",
+          "  }",
+          "  cb(res.json().data);",
+          "});",
+          "const set = (k, v) => pm.collectionVariables.set(k, v);",
+          "",
+          "get('/plans', 'acme_key', (plans) => {",
+          "  const byCode = Object.fromEntries(plans.map((p) => [p.code, p.id]));",
+          "  set('starter_plan_id', byCode.starter); set('growth_plan_id', byCode.growth);",
+          "  set('scale_plan_id', byCode.scale); set('enterprise_plan_id', byCode.enterprise);",
+          "  set('plan_id', byCode.growth);",
+          "  get('/customers', 'acme_key', (customers) => {",
+          "    const beta = customers.find((c) => c.external_id === 'acme-beta-retail-pvt-ltd') || customers[0];",
+          "    set('customer_id', beta.id);",
+          "    set('subscription_id', beta.active_subscription ? beta.active_subscription.id : '');",
+          "    get('/invoices?customer_id=' + beta.id, 'acme_key', (invoices) => {",
+          "      set('invoice_id', invoices.length ? invoices[0].id : '');",
+          "      get('/customers', 'globex_key', (gc) => {",
+          "        set('globex_customer_id', gc[0].id);",
+          "        get('/plans', 'globex_key', (gp) => {",
+          "          set('globex_plan_id', gp[0].id);",
+          "          set('lookups_ready', 'yes');",
+          "        });",
+          "      });",
+          "    });",
+          "  });",
+          "});",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api/v1"
+    },
+    {
+      "key": "acme_key",
+      "value": "mk_demo_acme_corp_local_only_do_not_use_in_prod"
+    },
+    {
+      "key": "globex_key",
+      "value": "mk_demo_globex_local_only_do_not_use_in_prod"
+    },
+    {
+      "key": "merchant_id",
+      "value": "1"
+    },
+    {
+      "key": "globex_merchant_id",
+      "value": "2"
+    },
+    {
+      "key": "lookups_ready",
+      "value": "no"
+    },
+    {
+      "key": "customer_id",
+      "value": ""
+    },
+    {
+      "key": "subscription_id",
+      "value": ""
+    },
+    {
+      "key": "plan_id",
+      "value": ""
+    },
+    {
+      "key": "starter_plan_id",
+      "value": ""
+    },
+    {
+      "key": "growth_plan_id",
+      "value": ""
+    },
+    {
+      "key": "scale_plan_id",
+      "value": ""
+    },
+    {
+      "key": "enterprise_plan_id",
+      "value": ""
+    },
+    {
+      "key": "globex_customer_id",
+      "value": ""
+    },
+    {
+      "key": "globex_plan_id",
+      "value": ""
+    },
+    {
+      "key": "invoice_id",
+      "value": ""
+    },
+    {
+      "key": "new_customer_id",
+      "value": ""
+    },
+    {
+      "key": "new_subscription_id",
+      "value": ""
+    },
+    {
+      "key": "new_plan_id",
+      "value": ""
+    },
+    {
+      "key": "event_key",
+      "value": ""
+    },
+    {
+      "key": "plan_code",
+      "value": ""
+    },
+    {
+      "key": "ext_id",
+      "value": ""
+    },
+    {
+      "key": "today",
+      "value": ""
+    },
+    {
+      "key": "yesterday",
+      "value": ""
+    },
+    {
+      "key": "tomorrow",
+      "value": ""
+    },
+    {
+      "key": "too_old",
+      "value": ""
+    },
+    {
+      "key": "too_old_month",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Setup (optional)",
+      "description": "Every request resolves the seeded IDs automatically the first time. Run this only if you re-seeded the database and want the IDs looked up again.",
+      "item": [
+        {
+          "name": "Refresh seeded IDs",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('lookups_ready', 'no');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('lookups_ready', 'no');",
+                  "console.log('Seeded IDs will be looked up again on the next request.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/plans"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Usage (idempotency)",
+      "item": [
+        {
+          "name": "Record usage → 201",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('event_key', 'evt-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Not a replay', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('false'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{event_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 250,\n  \"usage_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/usage",
+            "description": "A new Idempotency-Key is generated on every send, so this always returns 201."
+          }
+        },
+        {
+          "name": "Replay same event → 200 + Idempotent-Replayed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('base_url');",
+                  "const call = (method, path, body, cb, key) => pm.sendRequest({",
+                  "  url: base + path,",
+                  "  method,",
+                  "  header: [",
+                  "    { key: 'Accept', value: 'application/json' },",
+                  "    { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + (key || pm.collectionVariables.get('acme_key')) },",
+                  "  ],",
+                  "  body: body ? { mode: 'raw', raw: JSON.stringify(body) } : undefined,",
+                  "}, (err, res) => {",
+                  "  if (err || res.code >= 400) { console.error(method, path, err || res.code, res && res.text()); }",
+                  "  cb(res ? res.json() : {});",
+                  "});",
+                  "// Creates a brand-new customer subscribed to Starter (today) and stores its ids.",
+                  "const freshSubscription = (done) => {",
+                  "  const run = Date.now() + '-' + Math.floor(Math.random() * 1000);",
+                  "  call('POST', '/customers', { name: 'Postman Demo ' + run, email: 'billing+' + run + '@postman-demo.example', external_id: 'postman-' + run }, (c) => {",
+                  "    pm.collectionVariables.set('new_customer_id', c.data.id);",
+                  "    call('POST', '/customers/' + c.data.id + '/subscriptions', { plan_id: Number(pm.collectionVariables.get('starter_plan_id')), effective_date: pm.collectionVariables.get('today') }, (s) => {",
+                  "      pm.collectionVariables.set('new_subscription_id', s.data.id);",
+                  "      done();",
+                  "    });",
+                  "  });",
+                  "};",
+                  "",
+                  "if (!pm.collectionVariables.get('event_key')) {",
+                  "  const key = 'evt-' + Date.now();",
+                  "  pm.collectionVariables.set('event_key', key);",
+                  "  pm.sendRequest({ url: base + '/usage', method: 'POST', header: [",
+                  "    { key: 'Accept', value: 'application/json' }, { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + pm.collectionVariables.get('acme_key') }, { key: 'Idempotency-Key', value: key },",
+                  "  ], body: { mode: 'raw', raw: JSON.stringify({ customer_id: Number(pm.collectionVariables.get('customer_id')), units: 250, usage_date: pm.collectionVariables.get('today') }) } }, () => {});",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Marked as replay', () => pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.eql('true'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{event_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 250,\n  \"usage_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/usage",
+            "description": "Same key and body as the previous request: 200, header `Idempotent-Replayed: true`, nothing counted twice."
+          }
+        },
+        {
+          "name": "Same key, different units → 409",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error code', () => pm.expect(pm.response.json().error).to.eql('idempotency_key_reused'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{event_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 300,\n  \"usage_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/usage"
+          }
+        },
+        {
+          "name": "Backdated 1 day (allowed) → 201",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "late-{{$timestamp}}{{$randomInt}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 100,\n  \"usage_date\": \"{{yesterday}}\"\n}"
+            },
+            "url": "{{base_url}}/usage"
+          }
+        },
+        {
+          "name": "Too old (10 days back) → 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "old-{{$timestamp}}{{$randomInt}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 100,\n  \"usage_date\": \"{{too_old}}\"\n}"
+            },
+            "url": "{{base_url}}/usage"
+          }
+        },
+        {
+          "name": "Future date → 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "future-{{$timestamp}}{{$randomInt}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 100,\n  \"usage_date\": \"{{tomorrow}}\"\n}"
+            },
+            "url": "{{base_url}}/usage"
+          }
+        },
+        {
+          "name": "Missing Idempotency-Key → 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 100,\n  \"usage_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/usage"
+          }
+        },
+        {
+          "name": "Invalid body (units 0) → 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "bad-{{$timestamp}}{{$randomInt}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 0,\n  \"usage_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/usage"
+          }
+        },
+        {
+          "name": "Tenant isolation: Globex customer with Acme key → 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "xt-{{$timestamp}}{{$randomInt}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{globex_customer_id}},\n  \"units\": 100,\n  \"usage_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/usage",
+            "description": "The customer belongs to Globex, so Acme gets \"Unknown customer.\" — the same answer as for an ID that does not exist."
+          }
+        },
+        {
+          "name": "No API key → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "noauth-{{$timestamp}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customer_id\": {{customer_id}},\n  \"units\": 100,\n  \"usage_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/usage"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Dashboard",
+      "item": [
+        {
+          "name": "Merchant dashboard",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/merchants/{{merchant_id}}/dashboard"
+          }
+        },
+        {
+          "name": "Other merchant's dashboard → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/merchants/{{globex_merchant_id}}/dashboard"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Plans",
+      "item": [
+        {
+          "name": "List plans",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has plans', () => pm.expect(pm.response.json().data.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/plans"
+          }
+        },
+        {
+          "name": "Get plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/plans/{{plan_id}}"
+          }
+        },
+        {
+          "name": "Create plan → 201",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('plan_code', 'pro-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('new_plan_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{plan_code}}\",\n  \"name\": \"Pro\",\n  \"billing_interval\": \"monthly\",\n  \"base_price\": 299900,\n  \"included_units\": 20000,\n  \"overage_rate\": 30,\n  \"is_active\": true\n}"
+            },
+            "url": "{{base_url}}/plans",
+            "description": "A unique plan code is generated on every send. billing_interval: monthly | quarterly | yearly. base_price in paise (299900 = ₹2,999). overage_rate in paise per unit, up to 6 decimals."
+          }
+        },
+        {
+          "name": "Update plan",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('base_url');",
+                  "const call = (method, path, body, cb, key) => pm.sendRequest({",
+                  "  url: base + path,",
+                  "  method,",
+                  "  header: [",
+                  "    { key: 'Accept', value: 'application/json' },",
+                  "    { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + (key || pm.collectionVariables.get('acme_key')) },",
+                  "  ],",
+                  "  body: body ? { mode: 'raw', raw: JSON.stringify(body) } : undefined,",
+                  "}, (err, res) => {",
+                  "  if (err || res.code >= 400) { console.error(method, path, err || res.code, res && res.text()); }",
+                  "  cb(res ? res.json() : {});",
+                  "});",
+                  "// Creates a brand-new customer subscribed to Starter (today) and stores its ids.",
+                  "const freshSubscription = (done) => {",
+                  "  const run = Date.now() + '-' + Math.floor(Math.random() * 1000);",
+                  "  call('POST', '/customers', { name: 'Postman Demo ' + run, email: 'billing+' + run + '@postman-demo.example', external_id: 'postman-' + run }, (c) => {",
+                  "    pm.collectionVariables.set('new_customer_id', c.data.id);",
+                  "    call('POST', '/customers/' + c.data.id + '/subscriptions', { plan_id: Number(pm.collectionVariables.get('starter_plan_id')), effective_date: pm.collectionVariables.get('today') }, (s) => {",
+                  "      pm.collectionVariables.set('new_subscription_id', s.data.id);",
+                  "      done();",
+                  "    });",
+                  "  });",
+                  "};",
+                  "",
+                  "if (!pm.collectionVariables.get('new_plan_id')) {",
+                  "  call('POST', '/plans', { code: 'pro-' + Date.now(), name: 'Pro', billing_interval: 'monthly', base_price: 299900, included_units: 20000, overage_rate: 30 },",
+                  "    (p) => pm.collectionVariables.set('new_plan_id', p.data.id));",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Name updated', () => pm.expect(pm.response.json().data.name).to.eql('Pro Plus'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pro Plus\",\n  \"base_price\": 349900,\n  \"overage_rate\": 27.5\n}"
+            },
+            "url": "{{base_url}}/plans/{{new_plan_id}}",
+            "description": "Updates the plan made by \"Create plan\" (or makes one first). Only name, base_price, included_units, overage_rate and is_active can change."
+          }
+        },
+        {
+          "name": "Duplicate plan code → 422",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"starter\",\n  \"name\": \"Starter again\",\n  \"billing_interval\": \"monthly\",\n  \"base_price\": 1,\n  \"included_units\": 1,\n  \"overage_rate\": 1\n}"
+            },
+            "url": "{{base_url}}/plans"
+          }
+        },
+        {
+          "name": "Other tenant's plan → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/plans/{{globex_plan_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Customers",
+      "item": [
+        {
+          "name": "List customers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/customers"
+          }
+        },
+        {
+          "name": "Get customer (with subscription)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/customers/{{customer_id}}"
+          }
+        },
+        {
+          "name": "Create customer → 201",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('ext_id', 'demo-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('new_customer_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Demo Pvt Ltd\",\n  \"email\": \"billing@postman-demo.example\",\n  \"external_id\": \"{{ext_id}}\"\n}"
+            },
+            "url": "{{base_url}}/customers"
+          }
+        },
+        {
+          "name": "Other tenant's customer → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/customers/{{globex_customer_id}}"
+          }
+        },
+        {
+          "name": "Globex key sees only Globex customers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('No Acme customers', () => pm.response.json().data.forEach((c) => pm.expect(c.external_id).to.match(/^globex-/)));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{globex_key}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/customers"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Subscriptions",
+      "description": "Each request creates its own fresh customer in its pre-request script where it needs one, so every request can be sent any number of times in any order.",
+      "item": [
+        {
+          "name": "Subscribe new customer to Starter → 201",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('base_url');",
+                  "const call = (method, path, body, cb, key) => pm.sendRequest({",
+                  "  url: base + path,",
+                  "  method,",
+                  "  header: [",
+                  "    { key: 'Accept', value: 'application/json' },",
+                  "    { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + (key || pm.collectionVariables.get('acme_key')) },",
+                  "  ],",
+                  "  body: body ? { mode: 'raw', raw: JSON.stringify(body) } : undefined,",
+                  "}, (err, res) => {",
+                  "  if (err || res.code >= 400) { console.error(method, path, err || res.code, res && res.text()); }",
+                  "  cb(res ? res.json() : {});",
+                  "});",
+                  "// Creates a brand-new customer subscribed to Starter (today) and stores its ids.",
+                  "const freshSubscription = (done) => {",
+                  "  const run = Date.now() + '-' + Math.floor(Math.random() * 1000);",
+                  "  call('POST', '/customers', { name: 'Postman Demo ' + run, email: 'billing+' + run + '@postman-demo.example', external_id: 'postman-' + run }, (c) => {",
+                  "    pm.collectionVariables.set('new_customer_id', c.data.id);",
+                  "    call('POST', '/customers/' + c.data.id + '/subscriptions', { plan_id: Number(pm.collectionVariables.get('starter_plan_id')), effective_date: pm.collectionVariables.get('today') }, (s) => {",
+                  "      pm.collectionVariables.set('new_subscription_id', s.data.id);",
+                  "      done();",
+                  "    });",
+                  "  });",
+                  "};",
+                  "",
+                  "const run = Date.now();",
+                  "call('POST', '/customers', { name: 'Postman Demo ' + run, external_id: 'postman-' + run }, (c) => pm.collectionVariables.set('new_customer_id', c.data.id));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('new_subscription_id', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": {{starter_plan_id}},\n  \"effective_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/customers/{{new_customer_id}}/subscriptions"
+          }
+        },
+        {
+          "name": "Subscribe again → 409 already_subscribed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('base_url');",
+                  "const call = (method, path, body, cb, key) => pm.sendRequest({",
+                  "  url: base + path,",
+                  "  method,",
+                  "  header: [",
+                  "    { key: 'Accept', value: 'application/json' },",
+                  "    { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + (key || pm.collectionVariables.get('acme_key')) },",
+                  "  ],",
+                  "  body: body ? { mode: 'raw', raw: JSON.stringify(body) } : undefined,",
+                  "}, (err, res) => {",
+                  "  if (err || res.code >= 400) { console.error(method, path, err || res.code, res && res.text()); }",
+                  "  cb(res ? res.json() : {});",
+                  "});",
+                  "// Creates a brand-new customer subscribed to Starter (today) and stores its ids.",
+                  "const freshSubscription = (done) => {",
+                  "  const run = Date.now() + '-' + Math.floor(Math.random() * 1000);",
+                  "  call('POST', '/customers', { name: 'Postman Demo ' + run, email: 'billing+' + run + '@postman-demo.example', external_id: 'postman-' + run }, (c) => {",
+                  "    pm.collectionVariables.set('new_customer_id', c.data.id);",
+                  "    call('POST', '/customers/' + c.data.id + '/subscriptions', { plan_id: Number(pm.collectionVariables.get('starter_plan_id')), effective_date: pm.collectionVariables.get('today') }, (s) => {",
+                  "      pm.collectionVariables.set('new_subscription_id', s.data.id);",
+                  "      done();",
+                  "    });",
+                  "  });",
+                  "};",
+                  "freshSubscription(() => {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Error code', () => pm.expect(pm.response.json().error).to.eql('already_subscribed'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": {{starter_plan_id}}\n}"
+            },
+            "url": "{{base_url}}/customers/{{new_customer_id}}/subscriptions"
+          }
+        },
+        {
+          "name": "Get subscription (with segments)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has segments', () => pm.expect(pm.response.json().data.segments.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/subscriptions/{{subscription_id}}",
+            "description": "A seeded subscription that was upgraded mid-cycle last month, so it has more than one segment."
+          }
+        },
+        {
+          "name": "Upgrade: Starter → Growth",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('base_url');",
+                  "const call = (method, path, body, cb, key) => pm.sendRequest({",
+                  "  url: base + path,",
+                  "  method,",
+                  "  header: [",
+                  "    { key: 'Accept', value: 'application/json' },",
+                  "    { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + (key || pm.collectionVariables.get('acme_key')) },",
+                  "  ],",
+                  "  body: body ? { mode: 'raw', raw: JSON.stringify(body) } : undefined,",
+                  "}, (err, res) => {",
+                  "  if (err || res.code >= 400) { console.error(method, path, err || res.code, res && res.text()); }",
+                  "  cb(res ? res.json() : {});",
+                  "});",
+                  "// Creates a brand-new customer subscribed to Starter (today) and stores its ids.",
+                  "const freshSubscription = (done) => {",
+                  "  const run = Date.now() + '-' + Math.floor(Math.random() * 1000);",
+                  "  call('POST', '/customers', { name: 'Postman Demo ' + run, email: 'billing+' + run + '@postman-demo.example', external_id: 'postman-' + run }, (c) => {",
+                  "    pm.collectionVariables.set('new_customer_id', c.data.id);",
+                  "    call('POST', '/customers/' + c.data.id + '/subscriptions', { plan_id: Number(pm.collectionVariables.get('starter_plan_id')), effective_date: pm.collectionVariables.get('today') }, (s) => {",
+                  "      pm.collectionVariables.set('new_subscription_id', s.data.id);",
+                  "      done();",
+                  "    });",
+                  "  });",
+                  "};",
+                  "freshSubscription(() => {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Now on Growth', () => pm.expect(pm.response.json().data.plan_id).to.eql(Number(pm.collectionVariables.get('growth_plan_id'))));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": {{growth_plan_id}}\n}"
+            },
+            "url": "{{base_url}}/subscriptions/{{new_subscription_id}}/change-plan",
+            "description": "Changes plan on a brand-new Starter subscription. (Changed on its start day, so the segment is replaced in place; for an older subscription the old segment is closed and a new one opened.)"
+          }
+        },
+        {
+          "name": "Change to same plan → 422 same_plan",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('base_url');",
+                  "const call = (method, path, body, cb, key) => pm.sendRequest({",
+                  "  url: base + path,",
+                  "  method,",
+                  "  header: [",
+                  "    { key: 'Accept', value: 'application/json' },",
+                  "    { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + (key || pm.collectionVariables.get('acme_key')) },",
+                  "  ],",
+                  "  body: body ? { mode: 'raw', raw: JSON.stringify(body) } : undefined,",
+                  "}, (err, res) => {",
+                  "  if (err || res.code >= 400) { console.error(method, path, err || res.code, res && res.text()); }",
+                  "  cb(res ? res.json() : {});",
+                  "});",
+                  "// Creates a brand-new customer subscribed to Starter (today) and stores its ids.",
+                  "const freshSubscription = (done) => {",
+                  "  const run = Date.now() + '-' + Math.floor(Math.random() * 1000);",
+                  "  call('POST', '/customers', { name: 'Postman Demo ' + run, email: 'billing+' + run + '@postman-demo.example', external_id: 'postman-' + run }, (c) => {",
+                  "    pm.collectionVariables.set('new_customer_id', c.data.id);",
+                  "    call('POST', '/customers/' + c.data.id + '/subscriptions', { plan_id: Number(pm.collectionVariables.get('starter_plan_id')), effective_date: pm.collectionVariables.get('today') }, (s) => {",
+                  "      pm.collectionVariables.set('new_subscription_id', s.data.id);",
+                  "      done();",
+                  "    });",
+                  "  });",
+                  "};",
+                  "freshSubscription(() => {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));",
+                  "pm.test('Error code', () => pm.expect(pm.response.json().error).to.eql('same_plan'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": {{starter_plan_id}}\n}"
+            },
+            "url": "{{base_url}}/subscriptions/{{new_subscription_id}}/change-plan"
+          }
+        },
+        {
+          "name": "Monthly → yearly plan → 422 interval_mismatch",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('base_url');",
+                  "const call = (method, path, body, cb, key) => pm.sendRequest({",
+                  "  url: base + path,",
+                  "  method,",
+                  "  header: [",
+                  "    { key: 'Accept', value: 'application/json' },",
+                  "    { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + (key || pm.collectionVariables.get('acme_key')) },",
+                  "  ],",
+                  "  body: body ? { mode: 'raw', raw: JSON.stringify(body) } : undefined,",
+                  "}, (err, res) => {",
+                  "  if (err || res.code >= 400) { console.error(method, path, err || res.code, res && res.text()); }",
+                  "  cb(res ? res.json() : {});",
+                  "});",
+                  "// Creates a brand-new customer subscribed to Starter (today) and stores its ids.",
+                  "const freshSubscription = (done) => {",
+                  "  const run = Date.now() + '-' + Math.floor(Math.random() * 1000);",
+                  "  call('POST', '/customers', { name: 'Postman Demo ' + run, email: 'billing+' + run + '@postman-demo.example', external_id: 'postman-' + run }, (c) => {",
+                  "    pm.collectionVariables.set('new_customer_id', c.data.id);",
+                  "    call('POST', '/customers/' + c.data.id + '/subscriptions', { plan_id: Number(pm.collectionVariables.get('starter_plan_id')), effective_date: pm.collectionVariables.get('today') }, (s) => {",
+                  "      pm.collectionVariables.set('new_subscription_id', s.data.id);",
+                  "      done();",
+                  "    });",
+                  "  });",
+                  "};",
+                  "freshSubscription(() => {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));",
+                  "pm.test('Error code', () => pm.expect(pm.response.json().error).to.eql('interval_mismatch'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": {{enterprise_plan_id}}\n}"
+            },
+            "url": "{{base_url}}/subscriptions/{{new_subscription_id}}/change-plan"
+          }
+        },
+        {
+          "name": "Backdated change into invoiced cycle → 422",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); pm.collectionVariables.set('too_old_month', d.toISOString().slice(0, 10));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 422', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_id\": {{starter_plan_id}},\n  \"effective_date\": \"{{too_old_month}}\"\n}"
+            },
+            "url": "{{base_url}}/subscriptions/{{subscription_id}}/change-plan",
+            "description": "Seeded subscription, dated the 1st of last month (already invoiced). Rejected, so seed data is not changed."
+          }
+        },
+        {
+          "name": "Cancel subscription",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const base = pm.collectionVariables.get('base_url');",
+                  "const call = (method, path, body, cb, key) => pm.sendRequest({",
+                  "  url: base + path,",
+                  "  method,",
+                  "  header: [",
+                  "    { key: 'Accept', value: 'application/json' },",
+                  "    { key: 'Content-Type', value: 'application/json' },",
+                  "    { key: 'Authorization', value: 'Bearer ' + (key || pm.collectionVariables.get('acme_key')) },",
+                  "  ],",
+                  "  body: body ? { mode: 'raw', raw: JSON.stringify(body) } : undefined,",
+                  "}, (err, res) => {",
+                  "  if (err || res.code >= 400) { console.error(method, path, err || res.code, res && res.text()); }",
+                  "  cb(res ? res.json() : {});",
+                  "});",
+                  "// Creates a brand-new customer subscribed to Starter (today) and stores its ids.",
+                  "const freshSubscription = (done) => {",
+                  "  const run = Date.now() + '-' + Math.floor(Math.random() * 1000);",
+                  "  call('POST', '/customers', { name: 'Postman Demo ' + run, email: 'billing+' + run + '@postman-demo.example', external_id: 'postman-' + run }, (c) => {",
+                  "    pm.collectionVariables.set('new_customer_id', c.data.id);",
+                  "    call('POST', '/customers/' + c.data.id + '/subscriptions', { plan_id: Number(pm.collectionVariables.get('starter_plan_id')), effective_date: pm.collectionVariables.get('today') }, (s) => {",
+                  "      pm.collectionVariables.set('new_subscription_id', s.data.id);",
+                  "      done();",
+                  "    });",
+                  "  });",
+                  "};",
+                  "freshSubscription(() => {});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Cancelled', () => pm.expect(pm.response.json().data.status).to.eql('cancelled'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"effective_date\": \"{{today}}\"\n}"
+            },
+            "url": "{{base_url}}/subscriptions/{{new_subscription_id}}/cancel",
+            "description": "Cancels a brand-new subscription. effective_date is the last billable day (optional)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Invoices",
+      "item": [
+        {
+          "name": "List all invoices",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/invoices"
+          }
+        },
+        {
+          "name": "List invoices for customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const first = pm.response.json().data[0]; if (first) pm.collectionVariables.set('invoice_id', first.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/invoices?customer_id={{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "invoices"
+              ],
+              "query": [
+                {
+                  "key": "customer_id",
+                  "value": "{{customer_id}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get invoice (with lines)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has lines', () => pm.expect(pm.response.json().data.lines.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/invoices/{{invoice_id}}"
+          }
+        }
+      ]
+    }
+  ]
+}
